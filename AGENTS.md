@@ -16,6 +16,7 @@ reference table with consistent identifiers.
 | `ports-osm.R` | Fetches `harbour=*` features from OSM Overpass API (Europe bbox), writes `ports_osm.gpkg` |
 | `ports-vmstools.R` | Extracts `harbours` dataset from `vmstools` package, writes `ports_vmstools.gpkg` |
 | `havnepolygoner3.gpkg` | NW European harbour polygons — supplied file (WGSFD/Jeppe), no generating script |
+| `ports-gfw.R` | Reads GFW named anchorages CSV, writes `ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg` |
 
 ## Output schema (`ports_all.gpkg`)
 
@@ -25,7 +26,7 @@ reference table with consistent identifiers.
 | `port` | string | Port name |
 | `hid` | numeric | Source harbour ID (Iceland/Faroe only; `NA` elsewhere) |
 | `unlocode` | string | `"yes"` / `"no"` — whether `pid` maps to a UN/LOCODE entry |
-| `source` | string | `einar`, `jeppe`, `emodnet`, `osm`, `vmstools` |
+| `source` | string | `einar`, `jeppe`, `emodnet`, `osm`, `vmstools`, `gfw` |
 | `geom` | geometry | Point or polygon; CRS 4326 |
 
 ## Run order
@@ -37,6 +38,7 @@ ports-iceland-and-faroe.R  *      →  ports_iceland_faroe.gpkg
 ports-emodnet.R                   →  ports_emodnet.gpkg
 ports-osm.R                       →  ports_osm.gpkg
 ports-vmstools.R                  →  ports_vmstools.gpkg
+ports-gfw.R                       →  ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg
                                            ↓
                            ports_all.R  →  ports_all.gpkg + ports.html
 ```

@@ -6,6 +6,7 @@
 #   data/ports/ports_emodnet.gpkg    — EmodNet harbour points
 #   data/ports/ports_osm.gpkg        — OpenStreetMap harbour features
 #   data/ports/ports_vmstools.gpkg   — vmstools harbour points
+#   data/ports/ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg — GFW named anchorages
 #   data/ports/unlocode.parquet      — UN/LOCODE ports (from unloccode.R)
 #
 # Output: data/ports/ports_all.gpkg
@@ -160,6 +161,19 @@ src_vmstools <- read_sf("ports_vmstools.gpkg") |>
   mutate(hid = NA_real_, source = "vmstools") |>
   select(pid, port, hid, unlocode, source, geom)
 
+# -- 6. GFW (Global Fishing Watch named anchorages) ----------------------------
+# label → port; s2 cell centroids at ~0.5 km resolution. No hid.
+# Note: AIS coverage for vessels < 12 m is < 1% — complements rather than
+# replaces the STK-derived Iceland/Faroe polygons.
+
+src_gfw <- read_sf("ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg") |>
+  select(port = label, geom) |>
+  filter(!is.na(port)) |>
+  add_country() |>
+  build_pid("port", "iso_a2", unlocode) |>
+  mutate(hid = NA_real_, source = "gfw") |>
+  select(pid, port, hid, unlocode, source, geom)
+
 # -- Bind and write ------------------------------------------------------------
 
 ports_all <- bind_rows(
@@ -167,7 +181,8 @@ ports_all <- bind_rows(
   src_havn,
   src_emodnet,
   src_osm,
-  src_vmstools
+  src_vmstools,
+  src_gfw
 )
 
 # sanity check
