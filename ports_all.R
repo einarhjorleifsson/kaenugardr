@@ -1,7 +1,7 @@
 # Consolidate all harbour polygon/point sources into a single reference table.
 #
 # Inputs:
-#   data/ports/ports.gpkg            — Iceland harbours (einar)
+#   data/ports/ports_iceland_faroe.gpkg — Iceland & Faroe harbours (einar)
 #   data/ports/havn_ports.gpkg       — NW European harbour polygons (jeppe - wgsfd2025)
 #   data/ports/ports_emodnet.gpkg    — EmodNet harbour points
 #   data/ports/ports_osm.gpkg        — OpenStreetMap harbour features
@@ -105,7 +105,7 @@ unlocode <- arrow::read_parquet("unlocode.parquet")
 # -- 1. Iceland (ports.gpkg) ---------------------------------------------------
 # Code; pid, port, hid, unlocode already present. Just tag source.
 
-src_iceland <- read_sf("ports.gpkg") |>
+src_iceland <- read_sf("ports_iceland_faroe.gpkg") |>
   mutate(source = "einar") |>
   select(pid, port, hid, unlocode, source, geom)
 
