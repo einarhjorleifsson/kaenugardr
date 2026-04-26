@@ -3,7 +3,6 @@
 .RData
 .Ruserdata
 .positai
-*.gpkg
 *.html
 *.Rproj
 .DS_Store
