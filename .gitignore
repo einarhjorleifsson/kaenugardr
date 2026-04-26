@@ -1,0 +1,10 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.positai
+*.gpkg
+*.html
+*.Rproj
+.DS_Store
+*.parquet
