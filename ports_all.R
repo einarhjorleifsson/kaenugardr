@@ -162,13 +162,21 @@ src_vmstools <- read_sf("ports_vmstools.gpkg") |>
   select(pid, port, hid, unlocode, source, geom)
 
 # -- 6. GFW (Global Fishing Watch named anchorages) ----------------------------
-# label → port; s2 cell centroids at ~0.5 km resolution. No hid.
+# Raw data: s2 cell centroids (~0.5 km). Multiple points per named port.
+# Approach: buffer each point by 500 m (matching s2 cell size), then union
+# within each (label, iso3) group → one polygon per named port.
 # Note: AIS coverage for vessels < 12 m is < 1% — complements rather than
 # replaces the STK-derived Iceland/Faroe polygons.
-
+bb <- st_bbox(c(xmin = -70, ymin = 30, xmax = 55, ymax = 85), crs = 4326)
 src_gfw <- read_sf("ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg") |>
-  select(port = label, geom) |>
-  filter(!is.na(port)) |>
+  st_crop(bb) |>
+  filter(!is.na(label)) |>
+  st_transform(3857) |>
+  st_buffer(500) |>
+  group_by(label, iso3) |>
+  summarise(geom = st_union(geom), .groups = "drop") |>
+  st_transform(4326) |>
+  rename(port = label) |>
   add_country() |>
   build_pid("port", "iso_a2", unlocode) |>
   mutate(hid = NA_real_, source = "gfw") |>
