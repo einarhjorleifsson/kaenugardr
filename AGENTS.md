@@ -63,3 +63,53 @@ git commit -m "Update ports map"
 git push origin gh-pages
 git checkout main
 ```
+
+## Potential tasks / future work
+
+### Add GFW anchorage data as a source
+
+Global Fishing Watch publishes a global anchorage dataset (~160,000 points, ~32,000
+named ports) derived from AIS vessel-stationary clustering. It is conceptually similar
+to the STK-derived Iceland/Faroe layer but uses AIS rather than VMS.
+
+**Caveat:** AIS coverage for small fishing vessels (< 12 m) is very low — less than
+1% broadcast AIS — so GFW anchorages would complement rather than replace the
+STK-derived polygons. Most useful as cross-validation for larger ports.
+
+**Access via `gfwr` R package** (requires free API token from
+https://globalfishingwatch.org/our-apis/tokens):
+
+```r
+# Install
+install.packages("gfwr", repos = c("https://globalfishingwatch.r-universe.dev",
+                                   "https://cran.r-project.org"))
+# Add to .Renviron: GFW_TOKEN="your_token_here"
+
+library(gfwr)
+library(sf)
+
+bb <- st_bbox(c(xmin = -30, xmax = 0, ymin = 60, ymax = 68), crs = 4326) |>
+  st_as_sfc() |>
+  st_as_sf()
+
+port_visits <- gfw_event(
+  event_type    = "PORT_VISIT",
+  start_date    = "2022-01-01",
+  end_date      = "2022-12-31",
+  region        = bb,
+  region_source = "USER_SHAPEFILE",
+  confidences   = 4
+)
+
+# Extract unique anchorage points
+anchorages_gfw <- port_visits |>
+  mutate(
+    anchorage_id   = map_chr(event_info, "anchorageId", .default = NA),
+    anchorage_name = map_chr(event_info, \(x) x$voyage$nextAnchorage$name %||% NA)
+  ) |>
+  distinct(anchorage_id, anchorage_name, lat, lon) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
+```
+
+The full static anchorage database (not just events) can also be downloaded from the
+GFW Data Download Portal: https://globalfishingwatch.org/data-download/
