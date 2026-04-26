@@ -97,25 +97,12 @@ The map is published as a GitHub Page from the `gh-pages` branch:
 After regenerating `ports.html` locally (last step of `ports_all.R`):
 
 ``` bash
-# From repo root — run once to set up the orphan branch:
-git checkout --orphan gh-pages
-git rm -rf .
-cp ports.html index.html
-git add index.html
-git commit -m "Deploy ports map"
-git push origin gh-pages
-git checkout main
-```
-
-For subsequent updates (the branch already exists):
-
-``` bash
 git checkout gh-pages
-cp /path/to/ports.html index.html
-git add index.html
+cp ports.html docs/index.html
+git add docs/index.html
 git commit -m "Update ports map"
 git push origin gh-pages
 git checkout main
 ```
 
-Then enable GitHub Pages in the repository settings: **Settings → Pages → Source → Deploy from branch → `gh-pages` / `/ (root)`**.
+GitHub Pages is configured at **Settings → Pages → Source → Deploy from branch → `gh-pages` / `docs`**.
