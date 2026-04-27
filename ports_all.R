@@ -198,13 +198,39 @@ write_sf(ports_all, "ports_all.gpkg")
 library(leaflet)
 
 src_colors <- c(
-  einar    = "#e41a1c",
-  jeppe    = "#377eb8",
-  emodnet  = "#4daf4a",
-  osm      = "#984ea3",
-  vmstools = "#ff7f00",
-  gfw      = "#a65628"
+  einar    = "#E74C3C",   # red
+  jeppe    = "#1A6FBF",   # blue
+  emodnet  = "#27AE60",   # green
+  osm      = "#E67E22",   # orange
+  vmstools = "#8E44AD",   # purple
+  gfw      = "#0097A7"    # teal
 )
+
+# Inline-styled popup table (no external CSS required in self-contained widget)
+make_popup <- function(df) {
+  cols <- c("pid", "port", "hid", "unlocode", "source", "priority")
+  df   <- df |> st_drop_geometry() |> select(all_of(cols))
+  pmap_chr(df, function(...) {
+    vals <- list(...)
+    rows <- map2_chr(names(vals), vals, \(k, v)
+      paste0(
+        '<tr>',
+        '<td style="padding:3px 10px 3px 2px;color:#666;text-align:right;',
+        'white-space:nowrap;font-size:12px;font-family:sans-serif">', k, '</td>',
+        '<td style="padding:3px 2px 3px 4px;font-weight:600;font-size:12px;',
+        'font-family:sans-serif">',
+        if (is.na(v)) '<span style="color:#bbb">NA</span>' else htmltools::htmlEscape(as.character(v)),
+        '</td></tr>'
+      )
+    )
+    paste0(
+      '<div style="overflow:auto;max-width:280px">',
+      '<table style="border-collapse:collapse;border-spacing:0">',
+      paste(rows, collapse = ""),
+      '</table></div>'
+    )
+  })
+}
 
 m <- leaflet() |>
   addProviderTiles("CartoDB.Positron", group = "CartoDB") |>
@@ -213,30 +239,26 @@ m <- leaflet() |>
 for (src in names(src_colors)) {
   dat <- ports_all |> filter(source == src)
   if (nrow(dat) == 0) next
-  col <- src_colors[src]
-  popup_html <- ~paste0("<b>", port, "</b><br>",
-                        "pid: ", pid, "<br>",
-                        "source: ", source, " (priority ", priority, ")<br>",
-                        "unlocode: ", unlocode)
-
-  pts  <- dat |> filter(st_dimension(geom) == 0)
-  poly <- dat |> filter(st_dimension(geom) >  0)
+  col    <- src_colors[src]
+  popups <- make_popup(dat)
+  pts    <- dat |> filter(st_dimension(geom) == 0)
+  poly   <- dat |> filter(st_dimension(geom) >  0)
 
   if (nrow(pts) > 0)
     m <- m |> addCircleMarkers(
       data        = pts,
-      radius      = 4, weight = 1,
+      radius      = 5, weight = 1,
       color       = col, fillColor = col, fillOpacity = 0.7,
-      popup       = popup_html,
+      popup       = popups[st_dimension(dat$geom) == 0],
       group       = src
     )
 
   if (nrow(poly) > 0)
     m <- m |> addPolygons(
       data        = poly,
-      weight      = 1,
-      color       = col, fillColor = col, fillOpacity = 0.4,
-      popup       = popup_html,
+      weight      = 1.5,
+      color       = col, fillColor = col, fillOpacity = 0.35,
+      popup       = popups[st_dimension(dat$geom) > 0],
       group       = src
     )
 }
