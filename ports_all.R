@@ -239,17 +239,16 @@ m <- leaflet() |>
 for (src in names(src_colors)) {
   dat <- ports_all |> filter(source == src)
   if (nrow(dat) == 0) next
-  col    <- src_colors[src]
-  popups <- make_popup(dat)
-  pts    <- dat |> filter(st_dimension(geom) == 0)
-  poly   <- dat |> filter(st_dimension(geom) >  0)
+  col  <- src_colors[[src]]                         # [[ ]] → plain string, not named vector
+  pts  <- dat |> filter(st_dimension(geom) == 0)
+  poly <- dat |> filter(st_dimension(geom) >  0)
 
   if (nrow(pts) > 0)
     m <- m |> addCircleMarkers(
       data        = pts,
       radius      = 5, weight = 1,
       color       = col, fillColor = col, fillOpacity = 0.7,
-      popup       = popups[st_dimension(dat$geom) == 0],
+      popup       = make_popup(pts),
       group       = src
     )
 
@@ -258,7 +257,7 @@ for (src in names(src_colors)) {
       data        = poly,
       weight      = 1.5,
       color       = col, fillColor = col, fillOpacity = 0.35,
-      popup       = popups[st_dimension(dat$geom) > 0],
+      popup       = make_popup(poly),
       group       = src
     )
 }
