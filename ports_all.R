@@ -1,17 +1,23 @@
 # Consolidate all harbour polygon/point sources into a single reference table.
 #
 # Inputs:
-#   data/ports/ports_iceland_faroe.gpkg — Iceland & Faroe harbours (einar)
-#   data/ports/havn_ports.gpkg       — NW European harbour polygons (jeppe - wgsfd2025)
-#   data/ports/ports_emodnet.gpkg    — EmodNet harbour points
-#   data/ports/ports_osm.gpkg        — OpenStreetMap harbour features
-#   data/ports/ports_vmstools.gpkg   — vmstools harbour points
-#   data/ports/ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg — GFW named anchorages
-#   data/ports/unlocode.parquet      — UN/LOCODE ports (from unloccode.R)
+#   ports_iceland_faroe.gpkg    — Iceland & Faroe harbours (einar)
+#   havnepolygoner3.gpkg        — NW European harbour polygons (jeppe)
+#   ports_emodnet.gpkg          — EmodNet harbour points
+#   ports_osm.gpkg              — OpenStreetMap harbour features
+#   ports_vmstools.gpkg         — vmstools harbour points
+#   ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg — GFW named anchorages
+#   unlocode.parquet            — UN/LOCODE reference (from unloccode.R)
 #
-# Output: data/ports/ports_all.gpkg
-#   Columns: pid, port, hid, unlocode, source, geom
-#   Geometry: native type preserved; downstream user picks the best shape.
+# Output: ports_all.gpkg
+#   Columns: pid, port, hid, unlocode, source, priority, geom
+#
+# pid is assigned GLOBALLY across all sources: the same (country, normalised
+# name) always maps to the same code regardless of which source it appears in.
+#
+# `priority` encodes source reliability:  einar=1, jeppe=2, ...; downstream
+# users can deduplicate by taking the best row per pid:
+#   ports_all |> slice_min(priority, by = pid, with_ties = FALSE)
 
 library(sf)
 library(tidyverse)
@@ -41,8 +47,9 @@ assign_codes <- function(names, taken = character(0)) {
   })
 }
 
-# Assign pid for a source that has no existing codes:
-# UN/LOCODE match first, then local acronym fallback, per country.
+# Build pid globally: UN/LOCODE match first, then local acronym fallback.
+# Local codes are derived from UNIQUE (country, norm_name) pairs so the same
+# port name in the same country always gets the same code, across all sources.
 build_pid <- function(df, name_col, country_col, unlocode) {
   df <- df |>
     mutate(.rid = row_number(), name_key = norm(.data[[name_col]])) |>
@@ -50,35 +57,39 @@ build_pid <- function(df, name_col, country_col, unlocode) {
       unlocode |>
         mutate(name_key = norm(name_ascii)) |>
         select(!!country_col := country, location, name_key),
-      by = c(country_col, "name_key")
+      by = c(country_col, "name_key"),
+      relationship = "many-to-many"
     ) |>
-    select(-name_key)
+    # retain first UN/LOCODE match if multiple entries share the same norm name
+    slice(1, .by = .rid)
 
+  # One local code per unique unmatched (country, norm_name) — not per row
   local_codes <- df |>
     st_drop_geometry() |>
+    distinct(.data[[country_col]], name_key, location) |>
     group_by(.data[[country_col]]) |>
     group_modify(\(grp, key) {
-      taken <- grp$location[!is.na(grp$location)]
+      taken     <- grp$location[!is.na(grp$location)]
       unmatched <- is.na(grp$location)
       grp$local <- NA_character_
-      grp$local[unmatched] <- assign_codes(norm(grp[[name_col]][unmatched]), taken)
+      grp$local[unmatched] <- assign_codes(grp$name_key[unmatched], taken)
       grp
     }) |>
     ungroup() |>
-    select(.rid, local)
+    select(all_of(country_col), name_key, local)
 
   df |>
-    left_join(local_codes, by = ".rid") |>
-    select(-.rid) |>
+    left_join(local_codes, by = c(country_col, "name_key")) |>
+    select(-name_key, -.rid) |>
     mutate(
       pid      = paste0(.data[[country_col]], "-", coalesce(location, local)),
       unlocode = if_else(!is.na(location), "yes", "no")
-    )
+    ) |>
+    select(-location)
 }
 
-# Assign country from coordinates via nearest-feature.
-# st_make_valid() repairs invalid geometries (e.g. duplicate edges in OSM data)
-# before computing centroids.
+# Assign ISO alpha-2 country code from geometry centroid (nearest-feature).
+# st_make_valid() repairs bad geometries before centroid computation.
 add_country <- function(sf_obj) {
   pts <- sf_obj |> st_make_valid() |> st_centroid()
   sf_obj |>
@@ -103,70 +114,51 @@ countries <- ne_countries(scale = "medium", returnclass = "sf") |>
 
 unlocode <- arrow::read_parquet("unlocode.parquet")
 
-# -- 1. Iceland (ports.gpkg) ---------------------------------------------------
-# Code; pid, port, hid, unlocode already present. Just tag source.
+# -- Source priority -----------------------------------------------------------
+# einar=1, jeppe=2 are fixed; order among 3–6 TBD.
+src_priority <- c(einar = 1L, jeppe = 2L, emodnet = 3L, osm = 4L,
+                  vmstools = 5L, gfw = 6L)
 
+# -- 1. einar (Iceland & Faroe) ------------------------------------------------
 src_iceland <- read_sf("ports_iceland_faroe.gpkg") |>
+  add_country() |>
   mutate(source = "einar") |>
-  select(pid, port, hid, unlocode, source, geom)
+  select(port, hid, source, iso_a2, geom)
 
-# -- 2. havn (NW European polygons) -------------------------------------------
-# Kode → hid, Landingsplads → port; cast to MULTIPOLYGON for uniform geometry.
-
+# -- 2. jeppe (NW European polygons) ------------------------------------------
+# Kode → hid; cast to MULTIPOLYGON for uniform geometry type.
 src_havn <- read_sf("havnepolygoner3.gpkg") |>
   rename(port = Landingsplads, hid = Kode) |>
-  add_country() |>
-  build_pid("port", "iso_a2", unlocode) |>
-  mutate(source = "jeppe") |>
   st_cast("MULTIPOLYGON") |>
-  select(pid, port, hid, unlocode, source, geom)
+  add_country() |>
+  mutate(source = "jeppe") |>
+  select(port, hid, source, iso_a2, geom)
 
 # -- 3. EmodNet ----------------------------------------------------------------
-# port_id is mostly already in UN/LOCODE concatenated format (CCXXX, 5 chars).
-# Split into iso_a2 + location; keep `portname` preferring over generic `port`.
-
+# Prefer portname over generic port column.
 src_emodnet <- read_sf("ports_emodnet.gpkg") |>
-  mutate(
-    iso_a2   = country,
-    # treat 5-char port_id starting with a valid 2-letter prefix as UN/LOCODE
-    location = if_else(nchar(port_id) == 5 & !str_detect(port_id, "\\d{3}"),
-                       str_sub(port_id, 3, 5), NA_character_),
-    port     = coalesce(portname, port),
-    local    = if_else(is.na(location), norm(port) |> str_sub(1, 3), NA_character_),
-    pid      = paste0(iso_a2, "-", coalesce(location, local)),
-    hid      = NA_real_,
-    unlocode = if_else(!is.na(location), "yes", "no"),
-    source   = "emodnet"
-  ) |>
-  select(pid, port, hid, unlocode, source, geom)
+  mutate(port = coalesce(portname, port), hid = NA_real_, source = "emodnet") |>
+  add_country() |>
+  select(port, hid, source, iso_a2, geom)
 
 # -- 4. OSM --------------------------------------------------------------------
-# Many columns; keep name + geometry only. Mixed geometry types are preserved.
-# Assign country from centroid; build pid via UN/LOCODE match + local fallback.
-
 src_osm <- read_sf("ports_osm.gpkg") |>
-  select(osm_id, port = name, geom) |>
+  select(port = name, geom) |>
   filter(!is.na(port)) |>
   add_country() |>
-  build_pid("port", "iso_a2", unlocode) |>
   mutate(hid = NA_real_, source = "osm") |>
-  select(pid, port, hid, unlocode, source, geom)
+  select(port, hid, source, iso_a2, geom)
 
 # -- 5. vmstools ---------------------------------------------------------------
-
 src_vmstools <- read_sf("ports_vmstools.gpkg") |>
   select(port = harbour, geom) |>
   add_country() |>
-  build_pid("port", "iso_a2", unlocode) |>
   mutate(hid = NA_real_, source = "vmstools") |>
-  select(pid, port, hid, unlocode, source, geom)
+  select(port, hid, source, iso_a2, geom)
 
 # -- 6. GFW (Global Fishing Watch named anchorages) ----------------------------
-# Raw data: s2 cell centroids (~0.5 km). Multiple points per named port.
-# Approach: buffer each point by 500 m (matching s2 cell size), then union
-# within each (label, iso3) group → one polygon per named port.
-# Note: AIS coverage for vessels < 12 m is < 1% — complements rather than
-# replaces the STK-derived Iceland/Faroe polygons.
+# Buffer each s2 point by 500 m then union within (label, iso3) → one polygon
+# per named port. AIS coverage for vessels < 12 m is < 1%.
 bb <- st_bbox(c(xmin = -70, ymin = 30, xmax = 55, ymax = 85), crs = 4326)
 src_gfw <- read_sf("ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg") |>
   st_crop(bb) |>
@@ -178,11 +170,10 @@ src_gfw <- read_sf("ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg") |>
   st_transform(4326) |>
   rename(port = label) |>
   add_country() |>
-  build_pid("port", "iso_a2", unlocode) |>
   mutate(hid = NA_real_, source = "gfw") |>
-  select(pid, port, hid, unlocode, source, geom)
+  select(port, hid, source, iso_a2, geom)
 
-# -- Bind and write ------------------------------------------------------------
+# -- Bind → global pid → priority ---------------------------------------------
 
 ports_all <- bind_rows(
   src_iceland,
@@ -191,7 +182,10 @@ ports_all <- bind_rows(
   src_osm,
   src_vmstools,
   src_gfw
-)
+) |>
+  build_pid("port", "iso_a2", unlocode) |>
+  mutate(priority = src_priority[source]) |>
+  select(pid, port, hid, unlocode, source, priority, geom)
 
 # sanity check
 ports_all |>
@@ -200,7 +194,6 @@ ports_all |>
   print()
 
 write_sf(ports_all, "ports_all.gpkg")
-
 
 library(mapview)
 m <- mapview(ports_all, zcol = "source")
