@@ -195,6 +195,63 @@ ports_all |>
 
 write_sf(ports_all, "ports_all.gpkg")
 
-library(mapview)
-m <- mapview(ports_all, zcol = "source")
-htmlwidgets::saveWidget(m@map, file = "ports.html", selfcontained = TRUE)
+library(leaflet)
+
+src_colors <- c(
+  einar    = "#e41a1c",
+  jeppe    = "#377eb8",
+  emodnet  = "#4daf4a",
+  osm      = "#984ea3",
+  vmstools = "#ff7f00",
+  gfw      = "#a65628"
+)
+
+m <- leaflet() |>
+  addProviderTiles("CartoDB.Positron", group = "CartoDB") |>
+  addTiles(group = "OpenStreetMap")
+
+for (src in names(src_colors)) {
+  dat <- ports_all |> filter(source == src)
+  if (nrow(dat) == 0) next
+  col <- src_colors[src]
+  popup_html <- ~paste0("<b>", port, "</b><br>",
+                        "pid: ", pid, "<br>",
+                        "source: ", source, " (priority ", priority, ")<br>",
+                        "unlocode: ", unlocode)
+
+  pts  <- dat |> filter(st_dimension(geom) == 0)
+  poly <- dat |> filter(st_dimension(geom) >  0)
+
+  if (nrow(pts) > 0)
+    m <- m |> addCircleMarkers(
+      data        = pts,
+      radius      = 4, weight = 1,
+      color       = col, fillColor = col, fillOpacity = 0.7,
+      popup       = popup_html,
+      group       = src
+    )
+
+  if (nrow(poly) > 0)
+    m <- m |> addPolygons(
+      data        = poly,
+      weight      = 1,
+      color       = col, fillColor = col, fillOpacity = 0.4,
+      popup       = popup_html,
+      group       = src
+    )
+}
+
+m <- m |>
+  addLayersControl(
+    baseGroups    = c("CartoDB", "OpenStreetMap"),
+    overlayGroups = names(src_colors),
+    options       = layersControlOptions(collapsed = FALSE)
+  ) |>
+  addLegend(
+    position = "bottomright",
+    colors   = unname(src_colors),
+    labels   = names(src_colors),
+    title    = "Source"
+  )
+
+htmlwidgets::saveWidget(m, file = "ports.html", selfcontained = TRUE)
