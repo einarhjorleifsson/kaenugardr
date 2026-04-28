@@ -61,13 +61,36 @@ All source rows are retained in `ports_all.gpkg`. To get one row per port
 ports_all |> slice_min(priority, by = pid, with_ties = FALSE)
 ```
 
-### GFW geometry
+### GFW geometry and mooring filter
 
-GFW data arrives as s2 cell centroids (~0.5 km). In `ports_all.R` these are
-converted to polygons: each point is buffered 500 m (matching s2 cell size),
-then buffered polygons sharing the same `(label, iso3)` group are unioned →
-one polygon per named port. Single-point ports become circles; clusters
-merge into the harbour footprint.
+GFW data arrives as s2 cell centroids (~0.5 km). Before polygon creation,
+offshore mooring/waiting anchorages are excluded — these are cells where large
+ships wait to enter port (e.g. Rotterdam's North Sea waiting area starts at
+~11 km offshore; Gothenburg's outer channel at 3–8 km).
+
+**Filter applied in `ports_all.R`:**
+```r
+filter(dock | (!is.na(distance_from_shore_m) & distance_from_shore_m <= 2000))
+```
+
+- `dock == TRUE`: GFW-labeled dock cells (68% of data, 84% at 0 m from shore) — always kept
+- `dock == FALSE & distance_from_shore_m ≤ 2000`: harbour-entrance/anchorage cells not flagged as docks (9%) — kept
+- `dock == FALSE & distance_from_shore_m > 2000`: offshore mooring/waiting areas (24%) — excluded
+
+After filtering, each point is buffered 500 m (matching s2 cell size), then
+buffered polygons sharing the same `(label, iso3)` group are unioned → one
+polygon per named port.
+
+### GFW data coverage
+
+The downloaded CSV (`named_anchorages_v2_pipe_v3_202601.gpkg`) covers Europe
+and the North Atlantic within the bbox `xmin=-70, ymin=30, xmax=55, ymax=85`.
+In practice the data has no coverage south of ~37°N (no Mediterranean ports
+below southern Spain). Re-download from the GFW Data Download Portal to get
+newer or wider coverage — free web registration required (no API token needed
+for bulk download):
+- Portal: https://globalfishingwatch.org/data-download/
+- Dataset: `public-anchorages:v20200316` (check for newer versions)
 
 ## Run order
 
@@ -92,8 +115,11 @@ ports-gfw.R                       →  ports_gfw_named_anchorages_v2_pipe_v3_202
 
 ## Interactive map (ports.html)
 
-- Generated at the end of `ports_all.R` via `mapview`, saved with `htmlwidgets::saveWidget`.
-- Not committed to `main`; published to GitHub Pages from the `gh-pages` branch (`docs/index.html`).
+- Generated at the end of `ports_all.R` via `leaflet`; per-source toggle panel,
+  high-contrast colours, inline-styled table popups. Saved with
+  `htmlwidgets::saveWidget`.
+- Not committed to `main`; published to GitHub Pages from the `gh-pages` branch
+  (`docs/index.html`).
 - Live at: https://einarhjorleifsson.github.io/kaenugardr/
 - To update after regenerating `ports.html`:
 
@@ -122,10 +148,9 @@ or nearest-neighbour with distance threshold) could catch these cases.
 
 ### GFW anchorage data via API
 
-The static GFW anchorage CSV was downloaded from the GFW Data Download Portal
-(https://globalfishingwatch.org/data-download/). Port visit events can also be
-queried live via the `gfwr` R package (requires free API token from
-https://globalfishingwatch.org/our-apis/tokens):
+Port visit events can be queried live via the `gfwr` R package (requires a
+separate free API token from https://globalfishingwatch.org/our-apis/tokens —
+distinct from the data download portal login):
 
 ```r
 install.packages("gfwr", repos = c("https://globalfishingwatch.r-universe.dev",
