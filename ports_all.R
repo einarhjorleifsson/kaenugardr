@@ -159,15 +159,15 @@ src_vmstools <- read_sf("ports_vmstools.gpkg") |>
 # -- 6. GFW (Global Fishing Watch named anchorages) ----------------------------
 # Buffer each s2 point by 500 m then union within (label, iso3) → one polygon
 # per named port. AIS coverage for vessels < 12 m is < 1%.
-bb <- st_bbox(c(xmin = -70, ymin = 30, xmax = 55, ymax = 85), crs = 4326)
+
 src_gfw <- read_sf("ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg") |>
-  st_crop(bb) |>
+  # st_crop(bb) |>
   filter(!is.na(label)) |>
   # Exclude offshore mooring/waiting anchorages:
   # keep dock-flagged cells OR non-dock cells within 2 km of shore.
   # This removes outer-channel waiting areas (e.g. Rotterdam ~11–35 km,
   # Gothenburg ~3–8 km) while retaining harbour-proper footprint.
-  filter(dock | (!is.na(distance_from_shore_m) & distance_from_shore_m <= 2000)) |>
+  filter(dock == TRUE) |> #  | (!is.na(distance_from_shore_m) & distance_from_shore_m <= 2000)) |>
   st_transform(3857) |>
   st_buffer(500) |>
   group_by(label, iso3) |>
@@ -197,6 +197,11 @@ ports_all |>
   st_drop_geometry() |>
   count(source, unlocode) |>
   print()
+
+bb <- st_bbox(c(xmin = -73, ymin = 32, xmax = 60, ymax = 85), crs = 4326)
+#ports_all <- ports_all |>
+#  st_make_valid() |>
+#  st_crop(bb)
 
 write_sf(ports_all, "ports_all.gpkg")
 
