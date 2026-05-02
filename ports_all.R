@@ -3,10 +3,12 @@
 # Inputs:
 #   ports_iceland_faroe.gpkg    — Iceland & Faroe harbours (einar)
 #   havnepolygoner3.gpkg        — NW European harbour polygons (jeppe)
+#   maksims                     - NW European harbour polygons (maksims)
 #   ports_emodnet.gpkg          — EmodNet harbour points
 #   ports_osm.gpkg              — OpenStreetMap harbour features
 #   ports_vmstools.gpkg         — vmstools harbour points
 #   ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg — GFW named anchorages
+#.  ports_giscoR.gpkg           - gisco ports - has a nice PORT_ID system
 #   unlocode.parquet            — UN/LOCODE reference (from unloccode.R)
 #
 # Output: ports_all.gpkg
@@ -115,9 +117,9 @@ countries <- ne_countries(scale = "medium", returnclass = "sf") |>
 unlocode <- arrow::read_parquet("unlocode.parquet")
 
 # -- Source priority -----------------------------------------------------------
-# einar=1, jeppe=2 are fixed; order among 3–6 TBD.
-src_priority <- c(einar = 1L, jeppe = 2L, emodnet = 3L, osm = 4L,
-                  vmstools = 5L, gfw = 6L)
+# ... need words here
+src_priority <- c(einar = 1L, gisco = 2L, jeppe = 3L, maksims = 4L, emodnet = 5L, osm = 6L,
+                  vmstools = 7L, gfw = 8L)
 
 # -- 1. einar (Iceland & Faroe) ------------------------------------------------
 src_iceland <- read_sf("ports_iceland_faroe.gpkg") |>
@@ -132,6 +134,15 @@ src_havn <- read_sf("havnepolygoner3.gpkg") |>
   st_cast("MULTIPOLYGON") |>
   add_country() |>
   mutate(source = "jeppe") |>
+  select(port, hid, source, iso_a2, geom)
+
+# -- 3. maksims ----------------------------------------------------------------
+# Kode → hid; cast to MULTIPOLYGON for uniform geometry type.
+src_maksims <- read_sf("data-raw/maksims/harbours.shp") |>
+  rename(port = harbour, hid = locode, geom = geometry) |>
+  #st_cast("MULTIPOLYGON") |>
+  add_country() |>
+  mutate(source = "maksims") |>
   select(port, hid, source, iso_a2, geom)
 
 # -- 3. EmodNet ----------------------------------------------------------------
@@ -178,15 +189,25 @@ src_gfw <- read_sf("ports_gfw_named_anchorages_v2_pipe_v3_202601.gpkg") |>
   mutate(hid = NA_real_, source = "gfw") |>
   select(port, hid, source, iso_a2, geom)
 
+
+# -- 7. gisco ------------------------------------------------------------------
+src_gisco <- read_sf("ports_giscoR.gpkg") |>
+  select(port = PORT_ID, geom) |>
+  add_country() |>
+  mutate(hid = NA_real_, source = "gisco") |>
+  select(port, hid, source, iso_a2, geom)
+
 # -- Bind → global pid → priority ---------------------------------------------
 
 ports_all <- bind_rows(
-  src_iceland,
-  src_havn,
-  src_emodnet,
-  src_osm,
-  src_vmstools,
-  src_gfw
+  src_iceland |> mutate(hid = as.character(hid)),
+  src_havn |> mutate(hid = as.character(hid)),
+  src_maksims |> mutate(hid = as.character(hid)),
+  src_emodnet |> mutate(hid = as.character(hid)),
+  src_osm |> mutate(hid = as.character(hid)),
+  src_vmstools |> mutate(hid = as.character(hid)),
+  src_gfw  |> mutate(hid = as.character(hid)),
+  src_gisco |> mutate(hid = as.character(hid))
 ) |>
   build_pid("port", "iso_a2", unlocode) |>
   mutate(priority = src_priority[source]) |>
@@ -210,10 +231,12 @@ library(leaflet)
 src_colors <- c(
   einar    = "#E74C3C",   # red
   jeppe    = "#1A6FBF",   # blue
+  maksims = "cyan",
   emodnet  = "#27AE60",   # green
   osm      = "#E67E22",   # orange
   vmstools = "#8E44AD",   # purple
-  gfw      = "#0097A7"    # teal
+  gfw      = "#0097A7",    # teal
+  gisco    = "gold"
 )
 
 # Inline-styled popup table (no external CSS required in self-contained widget)

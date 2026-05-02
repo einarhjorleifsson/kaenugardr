@@ -1,0 +1,5 @@
+library(tidyverse)
+library(giscoR)
+library(sf)
+ports <- gisco_get_ports()
+ports |> write_sf("ports_giscoR.gpkg")
