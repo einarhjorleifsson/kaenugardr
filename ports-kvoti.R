@@ -26,4 +26,7 @@ ports_kvoti <-
                           .default = port)) |>
   filter(!stad_nr %in% c(150, 153, 155:212, 300:999)) |>
   add_row(stad_nr = 140, port = "Grundartangi")
-ports_kvoti |> write_parquet("data/ports/ports_kvoti.parquet")
+# Writes to the repo root, where ports-iceland-and-faroe.R reads it. It used to
+# write to data/ports/, a directory that does not exist here, so a re-run failed
+# while the root copy everything reads had been put there by hand.
+ports_kvoti |> write_parquet("ports_kvoti.parquet")

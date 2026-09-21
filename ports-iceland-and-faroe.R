@@ -22,7 +22,7 @@
 #  Inputs:
 #    trail_stk (database) where values are in io
 #  Outputs:
-#    data/ports/ports.gpkg  - to be used to classify points in harbours
+#    ports_iceland_faroe.gpkg  - harbour polygons, consumed by ports_all.R
 #
 # Comments:
 #
