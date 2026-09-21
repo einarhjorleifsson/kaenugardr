@@ -1,4 +1,20 @@
 # Port identification and shapes
+#
+# ONE-TIME BOOTSTRAP - NOT PART OF THE REGULAR BUILD.
+# This derived the Iceland/Faroe harbour polygons from STK vessel trails once.
+# Do not re-run it on a schedule, for two reasons:
+#   1. Ports are physical infrastructure. They do not change as AIS accumulates,
+#      so re-deriving them from a growing trail buys nothing.
+#   2. It is circular. STK ships `harborid` and `in_out_of_harbor` per ping - the
+#      vendor has ALREADY classified each ping - and this script draws polygons
+#      around the pings STK flagged, which are then used downstream to decide
+#      which pings are in harbour. The polygon adds no independent information,
+#      and it inherits STK's blind spots: the harbours STK never flagged are
+#      exactly the ones that had to be hand-added in `ports_add` below.
+# The committed ports_iceland_faroe.gpkg is the frozen artifact. Corrections are
+# reviewed edits to it, recorded; this script is kept as provenance and as the
+# means to bootstrap again from scratch if that is ever necessary.
+# (Its input, data-raw/ais/stk/stk_trail, is not in this repo.)
 #  The ports_table is generated from the stk trail harbour data where io == "I"
 #  This table is joined with the ports_kvoti table via port name to generate a
 #  link with the numerical harbour value (hid) found in the logbooks and landings
@@ -207,13 +223,23 @@ ports_table |> count(port) |> filter(n > 1) |> knitr::kable(caption = "Expect no
 #   First generate an additional table of some ports in kvoti.stadur that is
 #   not in the stk data. This is just done for sake of completeness, expect
 #   in the end few points to fall into these "areas"
+# 2026-09-21. Hellnar's coordinate pair was repeated verbatim on the
+# Hellissandur and Hnífsdalur rows, so all three were buffered into the SAME
+# 213 m circle at Hellnar. Downstream, one AIS ping matched three harbours and
+# a left join emitted three rows — the long-standing "+70 rows" defect.
+#
+# Both are removed rather than re-pointed: neither is a proper harbour. Their
+# codes in the landings and logbook databases (41, 71) denote where the fish was
+# PROCESSED, not where a vessel berthed, which is also why STK never flagged
+# them and why they had to be hand-added here in the first place. Hnífsdalur's
+# 4,982 logbook arrivals run 1975-1993 and then stop: a processing plant's
+# lifetime, not a harbour's. Giving them geometry would invent harbours that do
+# not exist. They belong in the harbour-code crosswalk typed as landing places.
 ports_add <-
   tribble(~pid,    ~port, ~lat, ~lon,
           'IS-VIK', 'Vík', 63.413191, -19.005441,
           'IS-HLL', 'Hellnar', 64.751359, -23.643993,     # Hellnar
-          'IS-HLS', 'Hellisandur', 64.751359, -23.643993,     # Hellisandur
           'IS-ALV', 'Aviðruvör',  65.926529, -23.610718,    # Alviðruvör, Núpur
-          'IS-HDL', 'Hnífsdalur', 64.751359, -23.643993,     # Hnífsdalur
           'IS-OGV', 'Ögurvík', 66.043098, -22.732611) |>
           #'IS-BKK', 'Bakki', 65.741300, -23.821559, # Dýrafjörður
           #'IS-BIR', 'Bæjir', 66.087940, -22.553233,         # Bæjir, Snæfjallaströnd
@@ -221,10 +247,13 @@ ports_add <-
           #NA, 'Latrar', 66.389450, -23.039549) |>  #
   st_as_sf(coords = c("lon","lat"),
            crs = 4326) |>
+  # EPSG:3857 is a metre only at the equator - its scale factor is sec(lat) -
+  # so st_buffer(500) here produced 500*cos(lat) = 213 m on the ground in
+  # Iceland, not 500 m. Dividing by cos(lat) cancels the scale factor.
   st_transform(crs = 3857) |>
-  st_buffer(dist = 500) |>
+  st_buffer(dist = 500 / cos(.lat * pi / 180)) |>
   st_transform(crs = 4326) |>
-  select(-port)
+  select(-port, -.lat)
 
 # Besides standardization and some correction code here we may in some cases
 # split up the io="I" points to generate two polygons for some harbours. These
