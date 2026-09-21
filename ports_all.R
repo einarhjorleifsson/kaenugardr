@@ -21,7 +21,11 @@
 # users can deduplicate by taking the best row per pid:
 #   ports_all |> slice_min(priority, by = pid, with_ties = FALSE)
 
+library(emodnet.wfs)
+library(giscoR)
+library(osmdata)
 library(sf)
+sf::sf_use_s2(FALSE)
 library(tidyverse)
 library(rnaturalearth)
 library(stringi)
@@ -109,9 +113,48 @@ add_country <- function(sf_obj) {
     ))
 }
 
+# -- Raw data ------------------------------------------------------------------
+
+## -- gfw ----------------------------------------------------------------------
+gfw <- read_csv("named_anchorages_v2_pipe_v3_202601.csv")
+gfw_sf <- gfw |>
+  st_as_sf(coords = c("lon", "lat"),
+           crs = 4326)
+## -- emodnet ------------------------------------------------------------------
+wfs_ha <- emodnet_init_wfs_client(service = "human_activities")
+emodnet <- emodnet_get_layers(
+  wfs    = wfs_ha,
+  layers = "portlocations",
+  simplify = TRUE
+)
+## -- gisco --------------------------------------------------------------------
+gisco <- gisco_get_ports()
+## -- osm ----------------------------------------------------------------------
+# see: ports-osm.R
+## -- vmstools -----------------------------------------------------------------
+# Download the VMStools .tar.gz file from GitHub
+# url <- "https://github.com/nielshintzen/vmstools/releases/download/0.77/vmstools_0.77.tar.gz"
+# download.file(url, destfile = "vmstools_0.77.tar.gz", mode = "wb")
+# # Install the library from the downloaded .tar.gz file
+# install.packages("vmstools_0.77.tar.gz", repos = NULL, type = "source")
+library(vmstools)
+data("harbours")
+vmstools <-
+  harbours |>
+  as_tibble() |>
+  mutate(harbour = iconv(harbours$harbour, from = "latin1", to = "UTF-8")) |>
+  st_as_sf(coords = c("lon", "lat"),
+           crs = 4326)
+
+
+
+
+
+
+
 # -- Reference data ------------------------------------------------------------
 
-countries <- ne_countries(scale = "medium", returnclass = "sf") |>
+countries <- ne_countries(scale = "large", returnclass = "sf") |>
   select(iso_a2, country = name)
 
 unlocode <- arrow::read_parquet("unlocode.parquet")
@@ -119,7 +162,7 @@ unlocode <- arrow::read_parquet("unlocode.parquet")
 # -- Source priority -----------------------------------------------------------
 # ... need words here
 src_priority <- c(einar = 1L, gisco = 2L, jeppe = 3L, maksims = 4L, emodnet = 5L, osm = 6L,
-                  vmstools = 7L, gfw = 8L)
+                  vmstools = 7L, gfw = 8L, marta = 9L)
 
 # -- 1. einar (Iceland & Faroe) ------------------------------------------------
 src_iceland <- read_sf("ports_iceland_faroe.gpkg") |>
@@ -144,6 +187,22 @@ src_maksims <- read_sf("data-raw/maksims/harbours.shp") |>
   add_country() |>
   mutate(source = "maksims") |>
   select(port, hid, source, iso_a2, geom)
+
+# -- 3. marta -----------------------------------------------------------------
+src_marta <- readxl::read_excel("data-raw/marta/landings_portos_Einer.xlsx") |>
+  select(port = nome.pt, lon = longdec, lat = latdec) |>
+  drop_na(lon, lat) |>
+  st_as_sf(coords = c("lon", "lat"),
+           crs = 4326) |>
+  st_transform(3857) |>
+  st_buffer(500) |>
+  group_by(port) |>
+  summarise(geometry = st_union(geometry), .groups = "drop") |>
+  st_transform(4326) |>
+  add_country() |>
+  mutate(hid = NA_real_, source = "marta") |>
+  select(port, hid, source, iso_a2, geometry)
+
 
 # -- 3. EmodNet ----------------------------------------------------------------
 # Prefer portname over generic port column.
@@ -207,7 +266,8 @@ ports_all <- bind_rows(
   src_osm |> mutate(hid = as.character(hid)),
   src_vmstools |> mutate(hid = as.character(hid)),
   src_gfw  |> mutate(hid = as.character(hid)),
-  src_gisco |> mutate(hid = as.character(hid))
+  src_gisco |> mutate(hid = as.character(hid)),
+  src_marta |> mutate(hid = as.character(hid)) |> rename(geom = geometry)
 ) |>
   build_pid("port", "iso_a2", unlocode) |>
   mutate(priority = src_priority[source]) |>
@@ -236,7 +296,8 @@ src_colors <- c(
   osm      = "#E67E22",   # orange
   vmstools = "#8E44AD",   # purple
   gfw      = "#0097A7",    # teal
-  gisco    = "gold"
+  gisco    = "gold",
+  marta    = "red"
 )
 
 # Inline-styled popup table (no external CSS required in self-contained widget)
@@ -297,7 +358,7 @@ for (src in names(src_colors)) {
 
 m <- m |>
   addLayersControl(
-    baseGroups    = c("CartoDB", "OpenStreetMap"),
+    baseGroups    = c("OpenStreetMap", "CartoDB"),
     overlayGroups = names(src_colors),
     options       = layersControlOptions(collapsed = FALSE)
   ) |>
@@ -308,4 +369,4 @@ m <- m |>
     title    = "Source"
   )
 
-htmlwidgets::saveWidget(m, file = "ports.html", selfcontained = TRUE)
+htmlwidgets::saveWidget(m, file = "kaenugardr.html", selfcontained = TRUE)
